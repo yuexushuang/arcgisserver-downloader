@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+﻿import React, { useState } from 'react';
 
 function formatDomain(domain) {
   if (!domain) return '-';
@@ -13,19 +13,65 @@ function toSafeValue(value) {
   return String(value);
 }
 
+function fallbackExecCommandCopy(text) {
+  const textarea = document.createElement('textarea');
+  textarea.value = text;
+  textarea.setAttribute('readonly', '');
+  textarea.style.position = 'fixed';
+  textarea.style.top = '-9999px';
+  textarea.style.left = '-9999px';
+  textarea.style.opacity = '0';
+
+  document.body.appendChild(textarea);
+  textarea.focus();
+  textarea.select();
+
+  let copied = false;
+  try {
+    copied = document.execCommand('copy');
+  } catch {
+    copied = false;
+  }
+
+  document.body.removeChild(textarea);
+  return copied;
+}
+
 export default function LayerFieldsTable({ fields = [] }) {
   const [copyStatus, setCopyStatus] = useState('');
+  const [manualCopyText, setManualCopyText] = useState('');
+
+  const showStatus = (text) => {
+    setCopyStatus(text);
+    setTimeout(() => setCopyStatus(''), 2000);
+  };
 
   const copyText = async (text, successText) => {
     if (!text) return;
+
+    // 第一层：Clipboard API
     try {
-      await navigator.clipboard.writeText(text);
-      setCopyStatus(successText);
-      setTimeout(() => setCopyStatus(''), 1500);
+      if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+        await navigator.clipboard.writeText(text);
+        showStatus(successText);
+        setManualCopyText('');
+        return;
+      }
     } catch {
-      setCopyStatus('复制失败');
-      setTimeout(() => setCopyStatus(''), 1500);
+      // 进入下一层兜底
     }
+
+    // 第二层：execCommand
+    const copiedByExecCommand = fallbackExecCommandCopy(text);
+    if (copiedByExecCommand) {
+      showStatus(`${successText}（兼容模式）`);
+      setManualCopyText('');
+      return;
+    }
+
+    // 第三层：手动复制
+    setManualCopyText(text);
+    showStatus('自动复制失败，请手动复制下方内容');
   };
 
   const copyNamesAndAliases = () => {
@@ -34,16 +80,15 @@ export default function LayerFieldsTable({ fields = [] }) {
   };
 
   const copyAllFields = () => {
-    const lines = fields.map(
-      (field) =>
-        [
-          toSafeValue(field.name),
-          toSafeValue(field.alias),
-          toSafeValue(field.type),
-          toSafeValue(field.length),
-          field.nullable ? '是' : '否',
-          toSafeValue(formatDomain(field.domain)),
-        ].join(','),
+    const lines = fields.map((field) =>
+      [
+        toSafeValue(field.name),
+        toSafeValue(field.alias),
+        toSafeValue(field.type),
+        toSafeValue(field.length),
+        field.nullable ? '是' : '否',
+        toSafeValue(formatDomain(field.domain)),
+      ].join(','),
     );
     copyText(lines.join('\n'), '已复制全部字段信息');
   };
@@ -73,6 +118,18 @@ export default function LayerFieldsTable({ fields = [] }) {
           <span className="rounded-full bg-sky-50 px-3 py-1 text-xs font-medium text-sky-700">{fields.length}</span>
         </div>
       </div>
+
+      {!!manualCopyText && (
+        <div className="mb-3 rounded-lg border border-amber-200 bg-amber-50 p-3">
+          <p className="mb-2 text-xs text-amber-700">自动复制失败，请点击文本框后按 Ctrl+C 手动复制</p>
+          <textarea
+            readOnly
+            value={manualCopyText}
+            onFocus={(event) => event.target.select()}
+            className="h-28 w-full resize-y rounded-md border border-amber-200 bg-white p-2 font-mono text-xs text-slate-700"
+          />
+        </div>
+      )}
 
       {fields.length ? (
         <div className="min-h-0 flex-1 overflow-auto">
